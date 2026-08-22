@@ -372,6 +372,52 @@
 
   function pct(x) { return Math.round(x * 1000) / 10 + '%'; }
 
+  // ---- Opponent bot decision (for Practice mode) -------------------------
+  // Decides what a simulated opponent does with a given hand.
+  //   opts: { board:[..], tightness:0..100, facingBet:bool, rng:fn }
+  // Returns { action: 'fold'|'check'|'call'|'bet'|'raise', sizeFrac:0..1 }
+  //   sizeFrac is the fraction of the pot to bet/raise (0 when folding/checking/calling).
+  // Intentionally simplified: one action per street, no raise wars.
+  function opponentAction(hole, opts) {
+    opts = opts || {};
+    var board = opts.board || [];
+    var facing = !!opts.facingBet;
+    var rng = opts.rng || Math.random;
+    var loose = 1 - Math.max(0, Math.min(100, opts.tightness == null ? 50 : opts.tightness)) / 100;
+    // extra willingness to gamble when loose
+    var slack = loose * 0.25;
+
+    if (board.length < 3) {
+      // Preflop: use Chen score vs their range cutoff.
+      var sc = chenScore(cardRank(hole[0]), cardRank(hole[1]),
+        cardSuit(hole[0]) === cardSuit(hole[1]));
+      var cutoff = chenCutoff(tightnessToRangePct(opts.tightness));
+      var premium = 14; // ~ AQs/AKo and up
+      if (sc >= premium && rng() < 0.6) return { action: 'raise', sizeFrac: 1.0 };
+      if (sc >= cutoff) return { action: facing ? 'call' : 'check', sizeFrac: 0 };
+      // sometimes a loose player calls light
+      if (rng() < slack) return { action: facing ? 'call' : 'check', sizeFrac: 0 };
+      return facing ? { action: 'fold', sizeFrac: 0 } : { action: 'check', sizeFrac: 0 };
+    }
+
+    // Postflop: judge the made hand category (0 high card .. 8 straight flush).
+    var cat = categoryOf(bestKnown(hole.concat(board)));
+    // strength 0..1 rough scale
+    var strength = Math.min(1, cat / 6) + (rng() - 0.5) * 0.1 + slack * 0.3;
+
+    if (facing) {
+      // continue with a pair or better, fold most air
+      if (cat >= 3 && rng() < 0.7) return { action: 'raise', sizeFrac: 0.8 };
+      if (cat >= 1 || strength > 0.5) return { action: 'call', sizeFrac: 0 };
+      return { action: 'fold', sizeFrac: 0 };
+    }
+    // not facing a bet: bet strong hands, occasionally bluff when loose
+    if (cat >= 2) return { action: 'bet', sizeFrac: 0.66 };
+    if (cat === 1 && rng() < 0.5) return { action: 'bet', sizeFrac: 0.5 };
+    if (rng() < slack * 0.5) return { action: 'bet', sizeFrac: 0.5 }; // bluff
+    return { action: 'check', sizeFrac: 0 };
+  }
+
   var api = {
     RANKS: RANKS, SUITS: SUITS,
     cardRank: cardRank, cardSuit: cardSuit, makeCard: makeCard,
@@ -380,7 +426,8 @@
     CATEGORY_NAMES: CATEGORY_NAMES,
     chenScore: chenScore, chenCutoff: chenCutoff,
     tightnessToRangePct: tightnessToRangePct,
-    equity: equity, advise: advise, pct: pct
+    equity: equity, advise: advise, pct: pct,
+    opponentAction: opponentAction
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

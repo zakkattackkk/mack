@@ -126,6 +126,26 @@
   .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
   .clearbtn { background: none; border: none; color: var(--accent2); cursor: pointer; font-size: 12px; padding: 0; }
   .disclaimer { font-size: 11px; color: var(--muted); text-align: center; margin: 4px 0 0; }
+
+  .mode-toggle { display: flex; gap: 6px; margin-top: 10px; }
+  .mode-toggle button {
+    flex: 1; padding: 8px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--chip); color: var(--text); cursor: pointer; font-size: 13px;
+  }
+  .mode-toggle button.active { background: var(--accent); border-color: var(--accent); color: #04150b; font-weight: 700; }
+  .practice-status {
+    background: var(--panel2); border-radius: 8px; padding: 10px 12px; font-size: 14px;
+    border: 1px solid var(--line);
+  }
+  .practice-log {
+    margin-top: 10px; max-height: 190px; overflow-y: auto; font-size: 12.5px;
+  }
+  .practice-log .line { padding: 4px 2px; border-bottom: 1px solid var(--line); color: var(--muted); }
+  .practice-log .line b { color: var(--text); }
+  .practice-log .line.you { color: var(--accent2); }
+  .practice-log .line.win { color: var(--accent); font-weight: 700; }
+  .practice-log .line.lose { color: var(--bad); font-weight: 700; }
+  .locked { opacity: .55; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -133,10 +153,30 @@
   <div class="wrap" style="padding:0">
     <h1><span>♠</span> Hold'em Odds &amp; Bet Advisor</h1>
     <div class="sub">Enter your cards, the board, and the action — get your real win % and what to do.</div>
+    <div class="mode-toggle" id="modeToggle">
+      <button data-mode="manual" class="active">✍️ Manual</button>
+      <button data-mode="practice">🎮 Practice game</button>
+    </div>
   </div>
 </header>
 
 <div class="wrap">
+
+  <!-- Practice game panel (hidden in manual mode) -->
+  <div class="card-panel" id="practicePanel" style="display:none; border-color:var(--accent2)">
+    <h2>🎮 Practice game — cards deal automatically</h2>
+    <p class="hint" style="margin-top:0">Deal a hand and the app fills in your cards, the board, the pot and the bet for you. You just make the decisions — the advisor updates live. Opponents play a simplified game (one action per street, single raise).</p>
+    <div class="practice-status" id="pStatus">Press <b>Deal new hand</b> to start.</div>
+    <div class="action-btns" style="margin-top:10px">
+      <button id="pDeal" style="background:var(--accent2);color:#04121f;font-weight:700;border-color:var(--accent2)">Deal new hand</button>
+    </div>
+    <div class="action-btns" id="pUserActions" style="margin-top:8px; display:none">
+      <button id="pFold">Fold</button>
+      <button id="pCall">Check</button>
+      <button id="pRaise">Raise</button>
+    </div>
+    <div class="practice-log" id="pLog"></div>
+  </div>
 
   <!-- Table setup -->
   <div class="card-panel">
@@ -505,6 +545,253 @@
       (adv.evCall >= 0 ? '+' : '') + '$' + (Math.round(adv.evCall * 100) / 100).toFixed(2) : '—';
     document.getElementById('stBet').textContent = adv.suggestBet > 0 ?
       '$' + (Math.round(adv.suggestBet * 100) / 100).toFixed(2) : '—';
+  }
+
+  // =====================================================================
+  // PRACTICE MODE — the app deals a mock hand and fills the cards for you.
+  // Simplified betting: one action per opponent per street, single raise.
+  // =====================================================================
+  var practiceMode = false;
+  var pg = null;
+  var potInput = document.getElementById('pot');
+  var toCallInput = document.getElementById('toCall');
+  var playersInput = document.getElementById('players');
+  var incrementInput = document.getElementById('increment');
+  var SUIT_G = { c: '♣', d: '♦', h: '♥', s: '♠' };
+
+  var modeToggle = document.getElementById('modeToggle');
+  [].forEach.call(modeToggle.children, function (b) {
+    b.onclick = function () { setMode(b.dataset.mode); };
+  });
+
+  function setMode(mode) {
+    practiceMode = (mode === 'practice');
+    [].forEach.call(modeToggle.children, function (c) {
+      c.classList.toggle('active', c.dataset.mode === mode);
+    });
+    document.getElementById('practicePanel').style.display = practiceMode ? 'block' : 'none';
+    ['holeSlots', 'boardSlots', 'actionBtns', 'clearCards'].forEach(function (id) {
+      document.getElementById(id).classList.toggle('locked', practiceMode);
+    });
+    [potInput, toCallInput].forEach(function (el) { el.classList.toggle('locked', practiceMode); });
+    if (practiceMode) { closePicker(); action = 'bet'; }
+  }
+
+  function round2(x) { return (Math.round(x * 100) / 100).toFixed(2); }
+  function roundInc(x) {
+    var inc = +incrementInput.value || (pg ? pg.stakeBB : 0.1);
+    return Math.round(x / inc) * inc;
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function draw() { return pg.deck[pg.di++]; }
+  function cardStr(c) {
+    if (c == null) return '?';
+    return E.RANKS[E.cardRank(c)] + SUIT_G[E.SUITS[E.cardSuit(c)]];
+  }
+  function boardStr(a, b) {
+    var out = [];
+    for (var i = a; i < b; i++) out.push(cardStr(pg.board[i]));
+    return out.join(' ');
+  }
+  function activeCount() {
+    var n = 0; pg.opponents.forEach(function (o) { if (!o.folded) n++; }); return n;
+  }
+  function streetName() { return ['Pre-flop', 'Flop', 'Turn', 'River'][pg.street] || 'River'; }
+
+  var pLog = document.getElementById('pLog');
+  var pStatus = document.getElementById('pStatus');
+  var pDeal = document.getElementById('pDeal');
+  var pUserActions = document.getElementById('pUserActions');
+  var pFold = document.getElementById('pFold');
+  var pCall = document.getElementById('pCall');
+  var pRaise = document.getElementById('pRaise');
+
+  function logLine(html, cls) {
+    var d = document.createElement('div');
+    d.className = 'line' + (cls ? ' ' + cls : '');
+    d.innerHTML = html;
+    pLog.appendChild(d);
+    pLog.scrollTop = pLog.scrollHeight;
+  }
+
+  function shuffledDeck() {
+    var d = [];
+    for (var i = 0; i < 52; i++) d.push(i);
+    for (i = d.length - 1; i > 0; i--) {
+      var j = (Math.random() * (i + 1)) | 0;
+      var t = d[i]; d[i] = d[j]; d[j] = t;
+    }
+    return d;
+  }
+
+  pDeal.onclick = dealNewHand;
+  function dealNewHand() {
+    var players = clamp(+playersInput.value || 4, 2, 10);
+    var opponents = players - 1;
+    pg = {
+      deck: shuffledDeck(), di: 0, opponents: [],
+      stakeSB: stake.sb, stakeBB: stake.bb, board: [], pot: 0,
+      street: 0, currentBet: 0, userContribStreet: 0, oppRaisedStreet: false, done: false
+    };
+    cards = [null, null, null, null, null, null, null];
+    cards[0] = draw(); cards[1] = draw();
+    for (var o = 0; o < opponents; o++)
+      pg.opponents.push({ hole: [draw(), draw()], folded: false, contribStreet: 0 });
+
+    // post blinds; treat user as being in late position, must call the BB
+    pg.pot = pg.stakeSB + pg.stakeBB;
+    pg.currentBet = pg.stakeBB;
+
+    pLog.innerHTML = '';
+    logLine('New hand dealt at $' + pg.stakeSB + '/$' + pg.stakeBB + '. Blinds posted ($' +
+      round2(pg.pot) + ' pot). You hold <b>' + cardStr(cards[0]) + ' ' + cardStr(cards[1]) + '</b>.');
+    action = 'bet';
+    renderSlots();
+    runOpponentStreet();
+  }
+
+  function runOpponentStreet() {
+    if (!pg || pg.done) return;
+    pg.opponents.forEach(function (o, idx) {
+      if (o.folded) return;
+      var facing = pg.currentBet > 0;
+      var a = E.opponentAction(o.hole, {
+        board: pg.board, tightness: +tightEl.value, facingBet: facing
+      });
+      var seat = 'Seat ' + (idx + 2);
+      if (a.action === 'fold') {
+        o.folded = true; logLine(seat + ' folds.');
+      } else if (a.action === 'raise' && !pg.oppRaisedStreet && facing) {
+        var raiseTo = pg.street === 0 ? pg.stakeBB * 3 :
+          pg.currentBet + Math.max(pg.stakeBB, roundInc(0.75 * pg.pot));
+        pg.oppRaisedStreet = true; pg.currentBet = raiseTo;
+        var put = raiseTo - o.contribStreet; pg.pot += put; o.contribStreet = raiseTo;
+        logLine(seat + ' <b>raises to $' + round2(raiseTo) + '</b>.');
+      } else if ((a.action === 'bet' || a.action === 'raise') && pg.currentBet === 0) {
+        var bet = Math.max(pg.stakeBB, roundInc(a.sizeFrac * pg.pot));
+        pg.currentBet = bet; pg.pot += bet; o.contribStreet = bet;
+        logLine(seat + ' <b>bets $' + round2(bet) + '</b>.');
+      } else {
+        if (pg.currentBet > 0) {
+          var need = pg.currentBet - o.contribStreet;
+          if (need > 0.0001) { pg.pot += need; o.contribStreet = pg.currentBet; logLine(seat + ' calls $' + round2(need) + '.'); }
+          else logLine(seat + ' checks.');
+        } else logLine(seat + ' checks.');
+      }
+    });
+    if (activeCount() === 0) { finishHand('allfold'); return; }
+    beginUserTurn();
+  }
+
+  function beginUserTurn() {
+    var toCall = Math.max(0, pg.currentBet - pg.userContribStreet);
+    potInput.value = round2(pg.pot);
+    toCallInput.value = round2(toCall);
+    renderSlots(); runCalc();
+    pUserActions.style.display = 'flex';
+    pCall.textContent = toCall > 0.0001 ? ('Call $' + round2(toCall)) : 'Check';
+    pStatus.innerHTML = '<b>Your turn</b> — ' + streetName() + '. Pot $' + round2(pg.pot) +
+      (toCall > 0.0001 ? (', $' + round2(toCall) + ' to call.') : ', checked to you.') +
+      ' See the advice below.';
+    pDeal.disabled = true;
+  }
+  function endUserTurn() { pUserActions.style.display = 'none'; }
+
+  pFold.onclick = function () {
+    if (!pg || pg.done) return;
+    endUserTurn(); logLine('<b>You</b> fold.', 'you'); finishHand('fold');
+  };
+  pCall.onclick = function () {
+    if (!pg || pg.done) return;
+    var toCall = Math.max(0, pg.currentBet - pg.userContribStreet);
+    pg.pot += toCall; pg.userContribStreet = pg.currentBet;
+    endUserTurn();
+    logLine('<b>You</b> ' + (toCall > 0.0001 ? ('call $' + round2(toCall)) : 'check') + '.', 'you');
+    advanceStreet();
+  };
+  pRaise.onclick = function () {
+    if (!pg || pg.done) return;
+    var toCall = Math.max(0, pg.currentBet - pg.userContribStreet);
+    var raiseAmt = Math.max(pg.stakeBB, roundInc(0.75 * (pg.pot + toCall)));
+    var newBet = pg.currentBet + raiseAmt;
+    var put = newBet - pg.userContribStreet;
+    pg.pot += put; pg.userContribStreet = newBet; pg.currentBet = newBet;
+    endUserTurn();
+    logLine('<b>You</b> raise to $' + round2(newBet) + '.', 'you');
+    respondToUserRaise();
+  };
+
+  function respondToUserRaise() {
+    pg.opponents.forEach(function (o, idx) {
+      if (o.folded) return;
+      var a = E.opponentAction(o.hole, {
+        board: pg.board, tightness: +tightEl.value, facingBet: true
+      });
+      var seat = 'Seat ' + (idx + 2);
+      if (a.action === 'fold') { o.folded = true; logLine(seat + ' folds.'); }
+      else {
+        var need = pg.currentBet - o.contribStreet;
+        if (need > 0.0001) { pg.pot += need; o.contribStreet = pg.currentBet; logLine(seat + ' calls $' + round2(need) + '.'); }
+      }
+    });
+    if (activeCount() === 0) { finishHand('allfold'); return; }
+    advanceStreet();
+  }
+
+  function advanceStreet() {
+    pg.currentBet = 0; pg.userContribStreet = 0; pg.oppRaisedStreet = false;
+    pg.opponents.forEach(function (o) { o.contribStreet = 0; });
+    pg.street++;
+    if (activeCount() === 0) { finishHand('allfold'); return; }
+    if (pg.street === 1) { dealBoard(3); logLine('<b>Flop:</b> ' + boardStr(0, 3)); }
+    else if (pg.street === 2) { dealBoard(1); logLine('<b>Turn:</b> ' + cardStr(pg.board[3])); }
+    else if (pg.street === 3) { dealBoard(1); logLine('<b>River:</b> ' + cardStr(pg.board[4])); }
+    else { showdown(); return; }
+    renderSlots(); runCalc();
+    setTimeout(runOpponentStreet, 550);
+  }
+
+  function dealBoard(n) {
+    var start = 2 + pg.board.length;
+    for (var i = 0; i < n; i++) { var c = draw(); cards[start + i] = c; pg.board.push(c); }
+  }
+
+  function finishHand(reason) {
+    pg.done = true; endUserTurn(); pDeal.disabled = false;
+    if (reason === 'fold') {
+      logLine('You folded — pot of $' + round2(pg.pot) + ' goes to the table.', 'lose');
+      pStatus.innerHTML = 'Hand over — you folded. Deal again to keep practicing.';
+    } else {
+      logLine('Everyone folded — <b>you win</b> the $' + round2(pg.pot) + ' pot!', 'win');
+      pStatus.innerHTML = 'Hand over — you won uncontested. Deal again.';
+    }
+  }
+
+  function showdown() {
+    pg.done = true; endUserTurn(); pDeal.disabled = false;
+    var board = pg.board.slice(0, 5);
+    var mine = E.eval7([cards[0], cards[1]].concat(board));
+    var bestScore = mine, winners = ['You'];
+    pg.opponents.forEach(function (o, idx) {
+      if (o.folded) return;
+      var s = E.eval7(o.hole.concat(board));
+      logLine('Seat ' + (idx + 2) + ' shows ' + cardStr(o.hole[0]) + ' ' + cardStr(o.hole[1]) +
+        ' — ' + E.CATEGORY_NAMES[E.categoryOf(s)] + '.');
+      if (s > bestScore) { bestScore = s; winners = ['Seat ' + (idx + 2)]; }
+      else if (s === bestScore) winners.push('Seat ' + (idx + 2));
+    });
+    var youWon = winners.indexOf('You') >= 0;
+    var catName = E.CATEGORY_NAMES[E.categoryOf(mine)];
+    if (youWon && winners.length === 1) {
+      logLine('<b>You win</b> with ' + catName + '! +$' + round2(pg.pot), 'win');
+      pStatus.innerHTML = 'Showdown — you won with ' + catName + '. Deal again.';
+    } else if (youWon) {
+      logLine('Split pot with ' + catName + '.', 'win');
+      pStatus.innerHTML = 'Showdown — split pot. Deal again.';
+    } else {
+      logLine(winners.join(', ') + ' win. You had ' + catName + '.', 'lose');
+      pStatus.innerHTML = 'Showdown — ' + winners.join(', ') + ' won. Deal again.';
+    }
   }
 
   renderSlots();

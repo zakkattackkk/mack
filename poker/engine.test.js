@@ -95,5 +95,27 @@ var lead = E.advise({ equity: 0.75, pot: 1.0, toCall: 0, bigBlind: 0.1 });
 ok(lead.action.indexOf('BET') === 0 && lead.suggestBet > 0,
   'strong hand, no bet to us => value bet');
 
+// ---- Opponent bot ----
+// AA never folds preflop, even facing a bet, even vs tight settings.
+var aaFold = 0;
+for (var t = 0; t < 200; t++) {
+  var a = E.opponentAction([C('As'), C('Ah')], { board: [], tightness: 90, facingBet: true });
+  if (a.action === 'fold') aaFold++;
+}
+ok(aaFold === 0, 'AA never folds preflop facing a bet');
+
+// 72o folds to a bet most of the time when opponents are tight.
+var junkFold = 0;
+for (t = 0; t < 200; t++) {
+  var j = E.opponentAction([C('7d'), C('2c')], { board: [], tightness: 80, facingBet: true });
+  if (j.action === 'fold') junkFold++;
+}
+ok(junkFold > 150, '72o usually folds to a bet vs tight range (folded ' + junkFold + '/200)');
+
+// A made flush bets or raises, never folds.
+var flushAct = E.opponentAction([C('As'), C('Ks')],
+  { board: [C('Qs'), C('Js'), C('2s')], tightness: 50, facingBet: false });
+ok(flushAct.action === 'bet' || flushAct.action === 'raise', 'made flush bets when checked to');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

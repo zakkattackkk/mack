@@ -27,6 +27,22 @@ It gives you:
 - **A recommendation** — FOLD / CHECK / CALL / BET / RAISE — with a suggested
   bet size rounded to your table's bet increment.
 
+## Two modes
+
+- **✍️ Manual** — enter the cards and action from a real game yourself.
+- **🎮 Practice game** — the app deals a mock hand and **fills in your cards, the
+  board, the pot, and the bet for you** as the hand plays out. Simulated
+  opponents check / bet / fold, and you just make the decisions (Fold / Check-Call
+  / Raise) while the advisor updates live. A running log explains what everyone
+  did and who won at showdown, so you can practice reading the numbers without
+  typing anything. The practice opponents use a simplified betting model (one
+  action per player per street, a single raise) — enough to rehearse decisions,
+  not a full poker AI. Their tightness follows the same Loose ↔ Tight slider.
+
+  *Note on "watching a real game": having the app read an online poker table off
+  your screen would violate most real-money sites' terms of service, so it isn't
+  built. Practice mode gives you the auto-filled cards without that risk.*
+
 ## How the win % is calculated
 
 It runs a Monte Carlo simulation: thousands of times it deals random hands to
