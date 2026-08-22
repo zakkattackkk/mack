@@ -579,8 +579,41 @@
     };
   }
 
+  // ---- Preflop starting-hand tier ---------------------------------------
+  // Classifies two hole cards into a tier that drives preflop advice.
+  // Returns { tier: 'premium'|'strong'|'playable'|'trash', label: 'AKs' }.
+  // Raw showdown equity understates premiums in a multiway pot (you fold
+  // later when you miss, and you have fold equity), so preflop we lean on
+  // hand strength, not just pot odds — which is why AK is a raise, not a fold.
+  function preflopTier(hole) {
+    var r1 = cardRank(hole[0]), r2 = cardRank(hole[1]);
+    var hi = Math.max(r1, r2), lo = Math.min(r1, r2);
+    var suited = cardSuit(hole[0]) === cardSuit(hole[1]);
+    var pair = hi === lo;
+    var gap = hi - lo;
+    var label = RANKS[hi] + RANKS[lo] + (pair ? '' : (suited ? 's' : 'o'));
+    // rank codes: A=12 K=11 Q=10 J=9 T=8 9=7 ...
+    var tier;
+    if (pair && hi >= 9) tier = 'premium';                 // JJ, QQ, KK, AA
+    else if (hi === 12 && lo === 11) tier = 'premium';     // AK (s or o)
+    else if (pair && hi >= 7) tier = 'strong';             // 99, TT
+    else if (hi === 12 && lo === 10) tier = 'strong';      // AQ
+    else if (hi === 12 && lo >= 8 && suited) tier = 'strong'; // AJs, ATs
+    else if (hi === 11 && lo === 10 && suited) tier = 'strong'; // KQs
+    else if (pair) tier = 'playable';                      // 22-88
+    else if (hi === 12 && suited) tier = 'playable';       // any suited ace
+    else if (hi === 12 && lo >= 8) tier = 'playable';      // AJo, ATo
+    else if (hi >= 10 && lo >= 8) tier = 'playable';       // KQ/KJ/QJ/QT/KT broadways
+    else if (suited && gap <= 1 && lo >= 3) tier = 'playable'; // suited connectors 54s+
+    else if (suited && hi === 11 && lo >= 6) tier = 'playable'; // Kxs decent
+    else tier = 'trash';
+    return { tier: tier, label: label, suited: suited, pair: pair };
+  }
+
   // ---- Decision / bet sizing --------------------------------------------
-  // params: { equity, pot, toCall, bigBlind, increment, stack }
+  // params: { equity, pot, toCall, bigBlind, increment, stack, hole, board }
+  // When hole is given and board is empty, uses preflop hand tiers so
+  // premium hands (AK, big pairs) are raised, not folded to a normal raise.
   // Returns advice object with pot odds, EV, action, suggested bet.
   function advise(params) {
     var eq = params.equity;
@@ -603,6 +636,57 @@
 
     var action, reason, betText = '';
     var suggestBet = 0;
+
+    // Is this a preflop decision? (hole given, no community cards yet)
+    var hole = params.hole;
+    var board = params.board || [];
+    var preflop = hole && hole.length === 2 && board.length === 0;
+
+    if (preflop) {
+      var pf = preflopTier(hole);
+      var betRatio = pot > 0 ? toCall / pot : 0;
+      var openTo = roundInc(Math.max(bb * 3, pot > 0 ? pot * 1 : bb * 3));
+
+      if (toCall === 0) {
+        // We can open the pot (or check in the big blind).
+        if (pf.tier === 'premium' || pf.tier === 'strong') {
+          suggestBet = openTo; if (stack && suggestBet > stack) suggestBet = stack;
+          action = 'RAISE (open)';
+          reason = pf.label + ' is a ' + pf.tier + ' hand — raise to build the pot and take control.';
+          betText = 'Suggested open: $' + money(suggestBet);
+        } else if (pf.tier === 'playable') {
+          suggestBet = openTo; if (stack && suggestBet > stack) suggestBet = stack;
+          action = 'RAISE / CHECK';
+          reason = pf.label + ' is playable, best in late position. Raise to open, or check if it\'s free.';
+          betText = 'Suggested open: $' + money(suggestBet);
+        } else {
+          action = 'CHECK / FOLD';
+          reason = pf.label + ' is a weak holding. Check if it\'s free; don\'t invest.';
+        }
+      } else {
+        // Facing a preflop raise.
+        if (pf.tier === 'premium') {
+          suggestBet = roundInc(toCall + (pot + toCall) * 1.2);
+          if (stack && suggestBet > stack) suggestBet = stack;
+          action = 'RAISE (re-raise)';
+          reason = pf.label + ' is premium — re-raise for value. Folding here is a mistake.';
+          betText = 'Suggested raise TO: $' + money(suggestBet);
+        } else if (pf.tier === 'strong') {
+          action = 'CALL (or raise)';
+          reason = pf.label + ' is strong. Call the raise; re-raise if the table is loose or the raiser is wide.';
+        } else if (pf.tier === 'playable' && (betRatio <= 1.05 || eq >= required)) {
+          action = 'CALL';
+          reason = pf.label + ' can call a standard raise cheaply, especially in position and multiway. Fold to a big re-raise.';
+        } else {
+          action = 'FOLD';
+          reason = pf.label + ' isn\'t worth calling a raise. Save your chips for a better spot.';
+        }
+      }
+      return {
+        requiredEquity: required, evCall: evCall, action: action, reason: reason,
+        suggestBet: suggestBet, betText: betText, tier: pf.tier, handLabel: pf.label
+      };
+    }
 
     if (toCall === 0) {
       // No bet to us — decide check vs bet (lead).
@@ -715,7 +799,7 @@
     chenScore: chenScore, chenCutoff: chenCutoff,
     tightnessToRangePct: tightnessToRangePct,
     equity: equity, advise: advise, pct: pct,
-    opponentAction: opponentAction
+    preflopTier: preflopTier, opponentAction: opponentAction
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -961,7 +1045,8 @@
 
     var adv = E.advise({
       equity: eq, pot: pot, toCall: toCall,
-      bigBlind: stake.bb, increment: inc, stack: stack
+      bigBlind: stake.bb, increment: inc, stack: stack,
+      hole: hole, board: board
     });
 
     var recEl = document.getElementById('rec');

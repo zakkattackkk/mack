@@ -117,5 +117,38 @@ var flushAct = E.opponentAction([C('As'), C('Ks')],
   { board: [C('Qs'), C('Js'), C('2s')], tightness: 50, facingBet: false });
 ok(flushAct.action === 'bet' || flushAct.action === 'raise', 'made flush bets when checked to');
 
+// ---- Preflop tiers & advice (the AK-fold fix) ----
+ok(E.preflopTier([C('As'), C('Kd')]).tier === 'premium', 'AKo is premium');
+ok(E.preflopTier([C('As'), C('Ks')]).tier === 'premium', 'AKs is premium');
+ok(E.preflopTier([C('Ah'), C('Ad')]).tier === 'premium', 'AA is premium');
+ok(E.preflopTier([C('Jh'), C('Jd')]).tier === 'premium', 'JJ is premium');
+ok(E.preflopTier([C('Ah'), C('Qd')]).tier === 'strong', 'AQo is strong');
+ok(E.preflopTier([C('7h'), C('2d')]).tier === 'trash', '72o is trash');
+
+// The exact scenario the user hit: AK, 4 players, facing a pot-sized bet.
+// Raw equity ~34% would fail pot odds, but AK must NOT be folded preflop.
+var akEq = E.equity({ hole: [C('As'), C('Kd')], board: [], opponents: 3,
+  tightness: 50, iterations: 15000 }).equity;
+var akAdv = E.advise({ equity: akEq, pot: 0.35, toCall: 0.35, bigBlind: 0.10,
+  increment: 0.10, hole: [C('As'), C('Kd')], board: [] });
+ok(akAdv.action.indexOf('FOLD') < 0, 'AK is never folded preflop facing a raise (got ' + akAdv.action + ')');
+ok(akAdv.action.indexOf('RAISE') === 0 || akAdv.action.indexOf('CALL') === 0,
+  'AK facing a raise => raise or call');
+
+// Opening with AK when checked to us => raise.
+var akOpen = E.advise({ equity: akEq, pot: 0.15, toCall: 0, bigBlind: 0.10,
+  increment: 0.10, hole: [C('As'), C('Kd')], board: [] });
+ok(akOpen.action.indexOf('RAISE') === 0, 'AK with no bet => open raise');
+
+// Trash still folds to a raise preflop.
+var junkAdv = E.advise({ equity: 0.2, pot: 0.35, toCall: 0.35, bigBlind: 0.10,
+  increment: 0.10, hole: [C('7h'), C('2d')], board: [] });
+ok(junkAdv.action === 'FOLD', '72o folds to a preflop raise');
+
+// Postflop advice path unchanged (ace-high nothing, facing big bet => fold).
+var postAdv = E.advise({ equity: 0.12, pot: 1.0, toCall: 0.8, bigBlind: 0.1,
+  hole: [C('As'), C('Kd')], board: [C('2h'), C('7c'), C('9s')] });
+ok(postAdv.action === 'FOLD', 'AK-high on a bad flop still folds to a big bet');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

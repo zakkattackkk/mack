@@ -532,7 +532,8 @@
 
     var adv = E.advise({
       equity: eq, pot: pot, toCall: toCall,
-      bigBlind: stake.bb, increment: inc, stack: stack
+      bigBlind: stake.bb, increment: inc, stack: stack,
+      hole: hole, board: board
     });
 
     var recEl = document.getElementById('rec');
