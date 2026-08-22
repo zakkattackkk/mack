@@ -170,6 +170,21 @@
   .seat .streak button.on.none { background: var(--chip); border-color: var(--muted); }
   .roster-summary { margin-top: 10px; font-size: 12px; color: var(--muted); }
   .roster-summary b { color: var(--text); }
+
+  /* collapsible panels */
+  .card-panel.collapsible > h2 { cursor: pointer; }
+  .card-panel.collapsible > h2::before {
+    content: '▾'; display: inline-block; width: 1.1em; margin-left: -2px;
+    color: var(--accent2); transition: transform .15s ease; font-size: 11px;
+  }
+  .card-panel.collapsed > h2::before { transform: rotate(-90deg); }
+  .card-panel.collapsed > *:not(h2) { display: none; }
+  .card-panel.collapsed { padding-bottom: 14px; }
+  .card-panel.collapsible > h2 .collapsed-hint {
+    float: right; font-size: 10px; color: var(--muted); font-weight: 500;
+    text-transform: none; letter-spacing: 0; display: none;
+  }
+  .card-panel.collapsed > h2 .collapsed-hint { display: inline; }
 </style>
 </head>
 <body>
@@ -203,7 +218,7 @@
   </div>
 
   <!-- Table setup -->
-  <div class="card-panel">
+  <div class="card-panel collapsible" id="panelTable">
     <h2>Table &amp; stakes</h2>
     <label>Stakes preset</label>
     <div class="stakes" id="stakes"></div>
@@ -225,7 +240,7 @@
   </div>
 
   <!-- Players / opponents -->
-  <div class="card-panel">
+  <div class="card-panel collapsible" id="panelPlayers">
     <h2>Players &amp; reads
       <button class="clearbtn" id="allIn" style="float:right; margin-left:10px">all back in</button>
     </h2>
@@ -372,7 +387,7 @@
       incInput.value = s.bb.toFixed(2);
       [].forEach.call(stakesEl.children, function (c) { c.classList.remove('active'); });
       b.classList.add('active');
-      recalc();
+      recalc(); updateCollapsedHints();
     };
     stakesEl.appendChild(b);
   });
@@ -380,7 +395,7 @@
   [sbInput, bbInput].forEach(function (el) {
     el.oninput = function () {
       [].forEach.call(stakesEl.children, function (c) { c.classList.remove('active'); });
-      recalc();
+      recalc(); updateCollapsedHints();
     };
   });
 
@@ -482,13 +497,47 @@
     rosterSummary.innerHTML = '<b>' + inHand.length + '</b> opponent' + (inHand.length > 1 ? 's' : '') +
       ' in the hand · avg effective VPIP <b>' + avg + '%</b> (' + looseWord(avg) + ')' +
       (streaks ? ' · ' + streaks + ' on a streak' : '');
+    updateCollapsedHints();
   }
 
-  seatsInput.oninput = function () { syncRoster(); saveRoster(); recalc(); };
-  document.getElementById('allIn').onclick = function () {
+  seatsInput.oninput = function () { syncRoster(); saveRoster(); recalc(); updateCollapsedHints(); };
+  document.getElementById('allIn').onclick = function (e) {
+    e.stopPropagation(); // don't toggle the panel
     roster.forEach(function (s) { s.in = true; });
     renderRoster(); saveRoster(); recalc();
   };
+
+  // ---- Collapsible panels ----
+  function makeCollapsible(panelId) {
+    var panel = document.getElementById(panelId);
+    if (!panel) return;
+    var h2 = panel.querySelector('h2');
+    var hint = document.createElement('span');
+    hint.className = 'collapsed-hint';
+    h2.appendChild(hint);
+    var key = 'poker_collapsed_' + panelId;
+    try { if (localStorage.getItem(key) === '1') panel.classList.add('collapsed'); } catch (e) {}
+    h2.addEventListener('click', function () {
+      panel.classList.toggle('collapsed');
+      try { localStorage.setItem(key, panel.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+      updateCollapsedHints();
+    });
+  }
+  function updateCollapsedHints() {
+    var t = document.querySelector('#panelTable .collapsed-hint');
+    if (t) {
+      var bl = getBlinds();
+      t.textContent = '$' + bl.sb + '/$' + bl.bb + ' · ' + (+seatsInput.value || 6) + ' seats';
+    }
+    var p = document.querySelector('#panelPlayers .collapsed-hint');
+    if (p) {
+      var inHand = roster.filter(function (s) { return s.in; }).length;
+      p.textContent = inHand + ' in hand';
+    }
+  }
+  makeCollapsible('panelTable');
+  makeCollapsible('panelPlayers');
+  updateCollapsedHints();
 
   // ---- Build card slots ----
   var holeEl = document.getElementById('holeSlots');
