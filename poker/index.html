@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Hold'em Odds &amp; Bet Advisor</title>
+<style>
+  :root {
+    --bg: #0f1720; --panel: #17212b; --panel2: #1e2b38; --line: #2a3b4d;
+    --text: #e8eef4; --muted: #90a4b7; --accent: #37d67a; --accent2: #4aa3ff;
+    --warn: #ffb020; --bad: #ff5c6c; --chip: #223243;
+    --red: #ff6b7a; --radius: 12px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 0 0 60px;
+  }
+  header {
+    padding: 16px 16px 10px; background: linear-gradient(180deg, #16232f, #0f1720);
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20;
+  }
+  h1 { margin: 0; font-size: 18px; letter-spacing: .3px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 12px 14px; }
+  .card-panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px; margin-bottom: 12px;
+  }
+  .card-panel h2 {
+    margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); font-weight: 600;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 90px; }
+  input[type=number], select {
+    width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 15px;
+  }
+  .stakes { display: flex; gap: 6px; flex-wrap: wrap; }
+  .stakes button {
+    flex: 1 1 auto; min-width: 74px; background: var(--chip); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 4px; font-size: 13px;
+    cursor: pointer;
+  }
+  .stakes button.active { background: var(--accent2); border-color: var(--accent2); color: #04121f; font-weight: 700; }
+
+  /* card slots */
+  .slots { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .slot {
+    width: 46px; height: 64px; border-radius: 8px; border: 2px dashed var(--line);
+    background: var(--panel2); display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; cursor: pointer; position: relative; color: var(--muted);
+  }
+  .slot.filled { border-style: solid; background: #fff; color: #111; }
+  .slot.filled.red { color: #d11f2d; }
+  .slot.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(55,214,122,.3); }
+  .slot small { position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+    font-size: 9px; color: var(--muted); background: var(--panel); padding: 0 4px; }
+  .board-group { display: flex; gap: 14px; flex-wrap: wrap; }
+  .board-group .lbl { font-size: 10px; color: var(--muted); text-align: center; margin-top: 3px; }
+
+  /* picker */
+  #picker { margin-top: 12px; display: none; }
+  #picker.show { display: block; }
+  .suit-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .rank-btn, .suit-btn {
+    flex: 1; padding: 8px 0; text-align: center; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel2); font-weight: 700; font-size: 14px;
+  }
+  .picker-ranks { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 8px; }
+  .suit-btn.red { color: var(--red); }
+  .rank-btn.sel, .suit-btn.sel { background: var(--accent2); color: #04121f; border-color: var(--accent2); }
+  .rank-btn.used { opacity: .28; pointer-events: none; }
+  .picker-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .picker-actions button { flex: 1; padding: 9px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--chip); color: var(--text); cursor: pointer; }
+
+  .tight-val { float: right; color: var(--text); font-weight: 700; }
+  input[type=range] { width: 100%; accent-color: var(--accent2); }
+  .tight-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+
+  .action-btns { display: flex; gap: 8px; }
+  .action-btns button {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--chip); color: var(--text); cursor: pointer; font-size: 13px;
+  }
+  .action-btns button.active { background: var(--warn); border-color: var(--warn); color: #1a1200; font-weight: 700; }
+
+  /* results */
+  #results { position: sticky; bottom: 0; z-index: 15; }
+  .result-card {
+    background: linear-gradient(180deg, #1b2a38, #16222e); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px; box-shadow: 0 -6px 20px rgba(0,0,0,.35);
+  }
+  .equity-big { font-size: 40px; font-weight: 800; line-height: 1; }
+  .equity-big small { font-size: 14px; color: var(--muted); font-weight: 500; }
+  .bar { height: 12px; border-radius: 6px; overflow: hidden; display: flex; margin: 10px 0 4px; background: var(--panel2); }
+  .bar .win { background: var(--accent); }
+  .bar .tie { background: var(--warn); }
+  .bar .lose { background: var(--bad); }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); }
+  .legend b { color: var(--text); }
+  .rec {
+    margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--panel2);
+    border-left: 4px solid var(--accent);
+  }
+  .rec .act { font-size: 20px; font-weight: 800; }
+  .rec .why { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .rec.fold { border-color: var(--bad); }
+  .rec.fold .act { color: var(--bad); }
+  .rec.call { border-color: var(--accent2); }
+  .rec.call .act { color: var(--accent2); }
+  .rec.raise, .rec.bet { border-color: var(--accent); }
+  .rec.raise .act, .rec.bet .act { color: var(--accent); }
+  .rec.check { border-color: var(--muted); }
+  .stat-grid { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 90px; background: var(--panel2); border-radius: 8px; padding: 8px 10px; }
+  .stat .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat .v { font-size: 16px; font-weight: 700; }
+  textarea { width: 100%; min-height: 60px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px; font: inherit; resize: vertical; }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .clearbtn { background: none; border: none; color: var(--accent2); cursor: pointer; font-size: 12px; padding: 0; }
+  .disclaimer { font-size: 11px; color: var(--muted); text-align: center; margin: 4px 0 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap" style="padding:0">
+    <h1><span>♠</span> Hold'em Odds &amp; Bet Advisor</h1>
+    <div class="sub">Enter your cards, the board, and the action — get your real win % and what to do.</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Table setup -->
+  <div class="card-panel">
+    <h2>Table</h2>
+    <label>Stakes (small blind / big blind)</label>
+    <div class="stakes" id="stakes"></div>
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label>Players still in hand (incl. you)</label>
+        <input type="number" id="players" min="2" max="10" value="4">
+      </div>
+      <div>
+        <label>Your seats total</label>
+        <input type="number" id="seats" min="2" max="10" value="6">
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <label>How tight are the other players? <span class="tight-val" id="tightVal">Average</span></label>
+      <input type="range" id="tightness" min="0" max="100" value="50">
+      <div class="tight-scale"><span>Loose (play anything)</span><span>Tight (only premiums)</span></div>
+      <div class="hint">Tighter opponents hold stronger hands on average, which lowers your win %. Loosen this if you've seen them play junk.</div>
+    </div>
+  </div>
+
+  <!-- Cards -->
+  <div class="card-panel">
+    <h2>Your hand &amp; the board <button class="clearbtn" id="clearCards" style="float:right">clear cards</button></h2>
+    <label>Your hole cards</label>
+    <div class="slots" id="holeSlots"></div>
+    <label style="margin-top:14px">Community cards (leave blank until dealt)</label>
+    <div class="board-group" id="boardSlots"></div>
+    <div id="picker">
+      <div class="picker-ranks" id="pickerRanks"></div>
+      <div class="suit-row" id="pickerSuits"></div>
+      <div class="picker-actions">
+        <button id="pickerClear">Empty this slot</button>
+        <button id="pickerClose">Done</button>
+      </div>
+    </div>
+    <div class="hint">Tap a slot, then pick a rank and suit. Flop = first 3, Turn = 4th, River = 5th.</div>
+  </div>
+
+  <!-- Betting -->
+  <div class="card-panel">
+    <h2>The action</h2>
+    <label>What did the opponent do?</label>
+    <div class="action-btns" id="actionBtns">
+      <button data-act="check" class="active">Checked</button>
+      <button data-act="bet">Bet / Called</button>
+      <button data-act="raise">Raised</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label>Current pot ($)</label>
+        <input type="number" id="pot" min="0" step="0.05" value="0.35">
+      </div>
+      <div>
+        <label>Amount for you to call ($)</label>
+        <input type="number" id="toCall" min="0" step="0.05" value="0">
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label>Your stack ($, optional)</label>
+        <input type="number" id="stack" min="0" step="0.05" value="">
+      </div>
+      <div>
+        <label>Bet increment ($)</label>
+        <input type="number" id="increment" min="0.01" step="0.01" value="0.10">
+      </div>
+    </div>
+    <div class="hint">Set the pot, and how much it costs you to call. If it's checked to you, leave "to call" at 0.</div>
+  </div>
+
+  <!-- Notes -->
+  <div class="card-panel">
+    <h2>Player reads (saved on this device)</h2>
+    <textarea id="notes" placeholder="e.g. Seat 3 just lost a big pot and is steaming — playing loose. Seat 5 only raises with premiums."></textarea>
+    <div class="hint">Use this to remember who's tight/loose, then set the slider to match the hand you're in.</div>
+  </div>
+
+</div>
+
+<!-- Sticky results -->
+<div class="wrap" id="results">
+  <div class="result-card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end">
+      <div class="equity-big"><span id="eqPct">–</span><small> to win</small></div>
+      <div style="text-align:right">
+        <div class="k" style="font-size:10px;color:var(--muted)">CURRENT HAND</div>
+        <div style="font-weight:700" id="handCat">—</div>
+      </div>
+    </div>
+    <div class="bar">
+      <div class="win" id="barWin" style="width:0%"></div>
+      <div class="tie" id="barTie" style="width:0%"></div>
+      <div class="lose" id="barLose" style="width:0%"></div>
+    </div>
+    <div class="legend">
+      <span><b id="lWin">–</b> win</span>
+      <span><b id="lTie">–</b> tie</span>
+      <span><b id="lLose">–</b> lose</span>
+    </div>
+    <div class="rec" id="rec">
+      <div class="act" id="recAct">Enter your two hole cards</div>
+      <div class="why" id="recWhy">Your win % and a bet recommendation will appear here.</div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat"><div class="k">Pot odds needed</div><div class="v" id="stReq">–</div></div>
+      <div class="stat"><div class="k">EV of calling</div><div class="v" id="stEV">–</div></div>
+      <div class="stat"><div class="k">Suggested size</div><div class="v" id="stBet">–</div></div>
+    </div>
+    <p class="disclaimer">Estimates from ~12k simulations. A guide, not a guarantee — play responsibly.</p>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  var E = window.PokerEngine;
+
+  // ---- Stakes presets ----
+  var STAKES = [
+    { label: '5¢/10¢', sb: 0.05, bb: 0.10 },
+    { label: '10¢/20¢', sb: 0.10, bb: 0.20 },
+    { label: '25¢/50¢', sb: 0.25, bb: 0.50 },
+    { label: '50¢/$1', sb: 0.50, bb: 1.00 },
+    { label: '$1/$2', sb: 1.00, bb: 2.00 },
+    { label: '$2/$5', sb: 2.00, bb: 5.00 }
+  ];
+  var stake = STAKES[0];
+
+  // ---- State ----
+  // cards[0..1] = hole, cards[2..6] = board. null = empty.
+  var cards = [null, null, null, null, null, null, null];
+  var activeSlot = -1;
+  var pickRank = -1, pickSuit = -1;
+  var action = 'check';
+
+  // ---- Build stakes buttons ----
+  var stakesEl = document.getElementById('stakes');
+  STAKES.forEach(function (s, i) {
+    var b = document.createElement('button');
+    b.textContent = s.label;
+    if (i === 0) b.classList.add('active');
+    b.onclick = function () {
+      stake = s;
+      [].forEach.call(stakesEl.children, function (c) { c.classList.remove('active'); });
+      b.classList.add('active');
+      document.getElementById('increment').value = s.bb.toFixed(2);
+      recalc();
+    };
+    stakesEl.appendChild(b);
+  });
+
+  // ---- Build card slots ----
+  var holeEl = document.getElementById('holeSlots');
+  var boardEl = document.getElementById('boardSlots');
+  function makeSlot(idx, labelText) {
+    var d = document.createElement('div');
+    d.className = 'slot';
+    d.dataset.idx = idx;
+    if (labelText) { var s = document.createElement('small'); s.textContent = labelText; d.appendChild(s); }
+    d.onclick = function () { openPicker(idx); };
+    return d;
+  }
+  holeEl.appendChild(makeSlot(0, ''));
+  holeEl.appendChild(makeSlot(1, ''));
+  // board grouped: flop(3) turn(1) river(1)
+  var groups = [['Flop', [2, 3, 4]], ['Turn', [5]], ['River', [6]]];
+  groups.forEach(function (g) {
+    var col = document.createElement('div');
+    col.style.textAlign = 'center';
+    var row = document.createElement('div');
+    row.className = 'slots';
+    g[1].forEach(function (i) { row.appendChild(makeSlot(i, '')); });
+    col.appendChild(row);
+    var lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = g[0];
+    col.appendChild(lbl);
+    boardEl.appendChild(col);
+  });
+
+  // ---- Picker ----
+  var pickerRanks = document.getElementById('pickerRanks');
+  E.RANKS.slice().reverse().forEach(function (r) {
+    var b = document.createElement('div');
+    b.className = 'rank-btn'; b.textContent = r; b.dataset.rank = r;
+    b.onclick = function () { pickRank = E.RANKS.indexOf(r); refreshPickerSel(); tryCommit(); };
+    pickerRanks.appendChild(b);
+  });
+  var pickerSuits = document.getElementById('pickerSuits');
+  var SUIT_GLYPH = { c: '♣', d: '♦', h: '♥', s: '♠' };
+  E.SUITS.forEach(function (su, i) {
+    var b = document.createElement('div');
+    b.className = 'suit-btn' + (su === 'd' || su === 'h' ? ' red' : '');
+    b.textContent = SUIT_GLYPH[su]; b.dataset.suit = i;
+    b.onclick = function () { pickSuit = i; refreshPickerSel(); tryCommit(); };
+    pickerSuits.appendChild(b);
+  });
+
+  function usedSet(exceptIdx) {
+    var u = {};
+    cards.forEach(function (c, i) { if (c != null && i !== exceptIdx) u[c] = true; });
+    return u;
+  }
+  function refreshPickerSel() {
+    [].forEach.call(pickerRanks.children, function (c) {
+      c.classList.toggle('sel', E.RANKS.indexOf(c.textContent) === pickRank);
+    });
+    [].forEach.call(pickerSuits.children, function (c) {
+      c.classList.toggle('sel', parseInt(c.dataset.suit, 10) === pickSuit);
+    });
+    // grey out ranks fully unavailable? keep simple; conflict handled on commit.
+  }
+  function tryCommit() {
+    if (pickRank < 0 || pickSuit < 0) return;
+    var card = E.makeCard(pickRank, pickSuit);
+    var used = usedSet(activeSlot);
+    if (used[card]) { // card already elsewhere — flash and ignore
+      return;
+    }
+    cards[activeSlot] = card;
+    renderSlots();
+    recalc();
+    // auto-advance to next empty slot for speed
+    var next = nextEmpty(activeSlot);
+    if (next >= 0) openPicker(next); else closePicker();
+  }
+  function nextEmpty(from) {
+    for (var i = from + 1; i < 7; i++) if (cards[i] == null) return i;
+    for (var j = 0; j < 7; j++) if (cards[j] == null) return j;
+    return -1;
+  }
+  function openPicker(idx) {
+    activeSlot = idx; pickRank = -1; pickSuit = -1;
+    document.getElementById('picker').classList.add('show');
+    renderSlots(); refreshPickerSel();
+  }
+  function closePicker() {
+    activeSlot = -1;
+    document.getElementById('picker').classList.remove('show');
+    renderSlots();
+  }
+  document.getElementById('pickerClose').onclick = closePicker;
+  document.getElementById('pickerClear').onclick = function () {
+    if (activeSlot >= 0) { cards[activeSlot] = null; renderSlots(); recalc(); }
+  };
+
+  function renderSlots() {
+    [].forEach.call(document.querySelectorAll('.slot'), function (el) {
+      var idx = parseInt(el.dataset.idx, 10);
+      var c = cards[idx];
+      el.classList.toggle('active', idx === activeSlot);
+      if (c == null) {
+        el.classList.remove('filled', 'red');
+        el.textContent = '';
+      } else {
+        el.classList.add('filled');
+        var su = E.cardSuit(c);
+        el.classList.toggle('red', su === 1 || su === 2); // d(1) or h(2)
+        el.textContent = E.RANKS[E.cardRank(c)] + SUIT_GLYPH[E.SUITS[su]];
+      }
+    });
+  }
+
+  // ---- Action buttons ----
+  var actEl = document.getElementById('actionBtns');
+  [].forEach.call(actEl.children, function (b) {
+    b.onclick = function () {
+      action = b.dataset.act;
+      [].forEach.call(actEl.children, function (c) { c.classList.remove('active'); });
+      b.classList.add('active');
+      // convenience: checked => toCall 0
+      if (action === 'check') document.getElementById('toCall').value = '0';
+      recalc();
+    };
+  });
+
+  // ---- Tightness slider ----
+  var tightEl = document.getElementById('tightness');
+  var tightVal = document.getElementById('tightVal');
+  function tightLabel(v) {
+    if (v < 20) return 'Very loose';
+    if (v < 40) return 'Loose';
+    if (v < 60) return 'Average';
+    if (v < 80) return 'Tight';
+    return 'Very tight';
+  }
+  tightEl.oninput = function () { tightVal.textContent = tightLabel(+tightEl.value); };
+  tightEl.onchange = recalc;
+
+  // ---- Clear cards ----
+  document.getElementById('clearCards').onclick = function () {
+    cards = [null, null, null, null, null, null, null];
+    closePicker(); renderSlots(); recalc();
+  };
+
+  // ---- Notes persistence ----
+  var notesEl = document.getElementById('notes');
+  try { notesEl.value = localStorage.getItem('poker_notes') || ''; } catch (e) {}
+  notesEl.oninput = function () { try { localStorage.setItem('poker_notes', notesEl.value); } catch (e) {} };
+
+  // ---- Recalc (debounced) ----
+  ['pot', 'toCall', 'stack', 'increment', 'players'].forEach(function (id) {
+    document.getElementById(id).oninput = recalc;
+  });
+
+  var timer = null;
+  function recalc() {
+    clearTimeout(timer);
+    timer = setTimeout(runCalc, 120);
+  }
+
+  function runCalc() {
+    var hole = [cards[0], cards[1]];
+    if (hole[0] == null || hole[1] == null) {
+      document.getElementById('recAct').textContent = 'Enter your two hole cards';
+      document.getElementById('recWhy').textContent = 'Your win % and a bet recommendation will appear here.';
+      document.getElementById('eqPct').textContent = '–';
+      return;
+    }
+    var board = [];
+    for (var i = 2; i < 7; i++) if (cards[i] != null) board.push(cards[i]);
+    // board must be 0, 3, 4, or 5 cards
+    if (board.length === 1 || board.length === 2) {
+      document.getElementById('recWhy').textContent = 'The flop needs all 3 cards before the odds are meaningful.';
+    }
+    var players = Math.max(2, Math.min(10, +document.getElementById('players').value || 4));
+    var opponents = players - 1;
+    var tightness = +tightEl.value;
+
+    var res = E.equity({
+      hole: hole, board: board, opponents: opponents,
+      tightness: tightness, iterations: 12000
+    });
+
+    // equity display
+    var eq = res.equity;
+    document.getElementById('eqPct').textContent = Math.round(eq * 100) + '%';
+    document.getElementById('handCat').textContent = res.categoryName || (board.length ? '—' : 'Preflop');
+    document.getElementById('barWin').style.width = (res.win * 100) + '%';
+    document.getElementById('barTie').style.width = (res.tie * 100) + '%';
+    document.getElementById('barLose').style.width = (res.lose * 100) + '%';
+    document.getElementById('lWin').textContent = E.pct(res.win);
+    document.getElementById('lTie').textContent = E.pct(res.tie);
+    document.getElementById('lLose').textContent = E.pct(res.lose);
+
+    // advice
+    var pot = +document.getElementById('pot').value || 0;
+    var toCall = action === 'check' ? 0 : (+document.getElementById('toCall').value || 0);
+    var stack = +document.getElementById('stack').value || 0;
+    var inc = +document.getElementById('increment').value || stake.bb;
+
+    var adv = E.advise({
+      equity: eq, pot: pot, toCall: toCall,
+      bigBlind: stake.bb, increment: inc, stack: stack
+    });
+
+    var recEl = document.getElementById('rec');
+    recEl.className = 'rec ' + adv.action.toLowerCase().split(' ')[0];
+    document.getElementById('recAct').textContent = adv.action;
+    document.getElementById('recWhy').textContent = adv.reason + (adv.betText ? '  ' + adv.betText : '');
+
+    document.getElementById('stReq').textContent = toCall > 0 ? E.pct(adv.requiredEquity) : '—';
+    document.getElementById('stEV').textContent = toCall > 0 ?
+      (adv.evCall >= 0 ? '+' : '') + '$' + (Math.round(adv.evCall * 100) / 100).toFixed(2) : '—';
+    document.getElementById('stBet').textContent = adv.suggestBet > 0 ?
+      '$' + (Math.round(adv.suggestBet * 100) / 100).toFixed(2) : '—';
+  }
+
+  renderSlots();
+  runCalc();
+})();
+</script>
+</body>
+</html>
