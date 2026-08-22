@@ -150,5 +150,27 @@ var postAdv = E.advise({ equity: 0.12, pot: 1.0, toCall: 0.8, bigBlind: 0.1,
   hole: [C('As'), C('Kd')], board: [C('2h'), C('7c'), C('9s')] });
 ok(postAdv.action === 'FOLD', 'AK-high on a bad flop still folds to a big bet');
 
+// ---- Bet sizing: scale with field size and board texture ----
+// Preflop open: more players in => bigger open (thin the field).
+var openHU = E.advise({ equity: 0.6, pot: 0.15, toCall: 0, bigBlind: 0.10,
+  increment: 0.10, hole: [C('As'), C('Kd')], board: [], opponents: 1 });
+var openMW = E.advise({ equity: 0.4, pot: 0.15, toCall: 0, bigBlind: 0.10,
+  increment: 0.10, hole: [C('As'), C('Kd')], board: [], opponents: 4 });
+ok(openMW.suggestBet > openHU.suggestBet, 'AK opens bigger vs a bigger field (' +
+  openHU.suggestBet + ' vs ' + openMW.suggestBet + ')');
+
+// Board texture detection.
+ok(E.boardTexture([C('As'), C('Ks'), C('2h')]).flushy === true, 'two spades => flush draw live');
+ok(E.boardTexture([C('Ks'), C('7d'), C('2c')]).wet === false, 'K-7-2 rainbow => dry');
+ok(E.boardTexture([C('9h'), C('Th'), C('Jh')]).monotone === true, 'three hearts => monotone');
+
+// Postflop value bet: wet multiway board => bigger than dry heads-up.
+var dryHU = E.advise({ equity: 0.7, pot: 1.0, toCall: 0, bigBlind: 0.1, increment: 0.05,
+  hole: [C('As'), C('Ad')], board: [C('Ah'), C('Kd'), C('2c')], opponents: 1 });
+var wetMW = E.advise({ equity: 0.7, pot: 1.0, toCall: 0, bigBlind: 0.1, increment: 0.05,
+  hole: [C('As'), C('Ad')], board: [C('Ah'), C('Kh'), C('9h')], opponents: 4 });
+ok(wetMW.suggestBet > dryHU.suggestBet,
+  'value bet is bigger on a wet multiway board (' + dryHU.suggestBet + ' vs ' + wetMW.suggestBet + ')');
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

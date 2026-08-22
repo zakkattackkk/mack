@@ -322,8 +322,47 @@
     return { tier: tier, label: label, suited: suited, pair: pair };
   }
 
+  // ---- Board texture & protection sizing --------------------------------
+  // Reads the board for live draws so we can size bets to deny them odds.
+  function boardTexture(board) {
+    if (!board || board.length < 3) return { wet: false, note: '' };
+    var suits = {}, ranks = [];
+    board.forEach(function (c) {
+      suits[cardSuit(c)] = (suits[cardSuit(c)] || 0) + 1;
+      ranks.push(cardRank(c));
+    });
+    var maxSuit = 0; for (var s in suits) maxSuit = Math.max(maxSuit, suits[s]);
+    ranks.sort(function (a, b) { return a - b; });
+    var uniq = ranks.filter(function (v, i) { return ranks.indexOf(v) === i; });
+    var connected = false;
+    for (var i = 0; i < uniq.length; i++)
+      for (var j = i + 1; j < uniq.length; j++)
+        if (uniq[j] - uniq[i] <= 4 && j - i <= 2) connected = true;
+    var flushy = maxSuit >= 2;      // two+ of a suit => a flush draw is live
+    var monotone = maxSuit >= 3;
+    var wet = flushy || connected;
+    var note = monotone ? 'a flush is already possible' :
+      (flushy && connected) ? 'flush and straight draws are live' :
+      flushy ? 'a flush draw is live' :
+      connected ? 'straight draws are live' : 'a dry board';
+    return { wet: wet, flushy: flushy, connected: connected, monotone: monotone, note: note };
+  }
+
+  // Fraction of the pot to bet/raise for value + protection.
+  // Bigger when more players can draw out, and when the board is drawy —
+  // enough to fold out weak hands and price draws out of chasing.
+  function protectionFrac(board, opponents) {
+    var opp = Math.max(1, opponents || 1);
+    var tex = boardTexture(board);
+    var frac = 0.6;                       // baseline value size
+    if (tex.wet) frac += 0.12;            // charge the draws
+    if (tex.monotone) frac += 0.08;       // flush already there — bet big or check
+    frac += Math.min(0.3, (opp - 1) * 0.1); // multiway: bet bigger to thin the field
+    return Math.max(0.5, Math.min(1.15, frac));
+  }
+
   // ---- Decision / bet sizing --------------------------------------------
-  // params: { equity, pot, toCall, bigBlind, increment, stack, hole, board }
+  // params: { equity, pot, toCall, bigBlind, increment, stack, hole, board, opponents }
   // When hole is given and board is empty, uses preflop hand tiers so
   // premium hands (AK, big pairs) are raised, not folded to a normal raise.
   // Returns advice object with pot odds, EV, action, suggested bet.
@@ -356,21 +395,29 @@
 
     if (preflop) {
       var pf = preflopTier(hole);
+      var opps = Math.max(1, params.opponents || 1);
       var betRatio = pot > 0 ? toCall / pot : 0;
-      var openTo = roundInc(Math.max(bb * 3, pot > 0 ? pot * 1 : bb * 3));
+      // Open sizing: ~3bb heads-up, +1bb for each extra player still in, so a
+      // loose multiway table gets charged more to thin the field. Cap ~6bb.
+      var openTo = roundInc(bb * Math.min(6, 3 + Math.max(0, opps - 1)));
+      var openBB = Math.round(openTo / bb * 10) / 10;
+      // 3-bet sizing: ~3x the bet you face, +1x per extra caller already in.
+      var threeBetTo = roundInc(toCall * Math.min(5, 3 + Math.max(0, opps - 1)));
 
       if (toCall === 0) {
         // We can open the pot (or check in the big blind).
         if (pf.tier === 'premium' || pf.tier === 'strong') {
           suggestBet = openTo; if (stack && suggestBet > stack) suggestBet = stack;
           action = 'RAISE (open)';
-          reason = pf.label + ' is a ' + pf.tier + ' hand — raise to build the pot and take control.';
-          betText = 'Suggested open: $' + money(suggestBet);
+          reason = pf.label + ' is a ' + pf.tier + ' hand — open to about ' + openBB +
+            ' big blinds' + (opps > 2 ? ', sized up because ' + opps + ' players are in, to thin the field.' : '.');
+          betText = 'Suggested open: $' + money(suggestBet) + ' (~' + openBB + ' BB)';
         } else if (pf.tier === 'playable') {
           suggestBet = openTo; if (stack && suggestBet > stack) suggestBet = stack;
           action = 'RAISE / CHECK';
-          reason = pf.label + ' is playable, best in late position. Raise to open, or check if it\'s free.';
-          betText = 'Suggested open: $' + money(suggestBet);
+          reason = pf.label + ' is playable, best in late position. Open to about ' + openBB +
+            ' BB to take the lead, or check if it\'s free.';
+          betText = 'Suggested open: $' + money(suggestBet) + ' (~' + openBB + ' BB)';
         } else {
           action = 'CHECK / FOLD';
           reason = pf.label + ' is a weak holding. Check if it\'s free; don\'t invest.';
@@ -378,14 +425,19 @@
       } else {
         // Facing a preflop raise.
         if (pf.tier === 'premium') {
-          suggestBet = roundInc(toCall + (pot + toCall) * 1.2);
+          suggestBet = Math.max(threeBetTo, roundInc(toCall + (pot + toCall) * 0.9));
           if (stack && suggestBet > stack) suggestBet = stack;
           action = 'RAISE (re-raise)';
-          reason = pf.label + ' is premium — re-raise for value. Folding here is a mistake.';
+          reason = pf.label + ' is premium — re-raise to about 3x their bet' +
+            (opps > 2 ? ', a touch more with the field this big, ' : ' ') +
+            'to isolate and fold out the speculative hands. Folding here is a mistake.';
           betText = 'Suggested raise TO: $' + money(suggestBet);
         } else if (pf.tier === 'strong') {
+          suggestBet = threeBetTo; if (stack && suggestBet > stack) suggestBet = stack;
           action = 'CALL (or raise)';
-          reason = pf.label + ' is strong. Call the raise; re-raise if the table is loose or the raiser is wide.';
+          reason = pf.label + ' is strong. Call the raise, or re-raise to about $' + money(suggestBet) +
+            ' to thin the field if the raiser is loose.';
+          betText = 'Optional raise TO: $' + money(suggestBet);
         } else if (pf.tier === 'playable' && (betRatio <= 1.05 || eq >= required)) {
           action = 'CALL';
           reason = pf.label + ' can call a standard raise cheaply, especially in position and multiway. Fold to a big re-raise.';
@@ -400,16 +452,29 @@
       };
     }
 
+    var frac = protectionFrac(board, params.opponents);
+    var tex = boardTexture(board);
+    var multiway = Math.max(1, params.opponents || 1) >= 2;
+    function pctOfPot(x) { return pot ? ' (~' + Math.round(x / pot * 100) + '% of pot)' : ''; }
+    function protectReason() {
+      var bits = [];
+      if (tex.wet) bits.push('deny the draws their odds (' + tex.note + ')');
+      if (multiway) bits.push('fold out the weaker hands with so many players in');
+      return bits.length ? ' — big enough to ' + bits.join(' and ') : '';
+    }
+
     if (toCall === 0) {
       // No bet to us — decide check vs bet (lead).
-      if (eq >= 0.66) {
-        suggestBet = roundInc(pot * 0.75);
+      if (eq >= 0.62) {
+        suggestBet = roundInc(pot * frac);
         action = 'BET (value)';
-        reason = 'You are a clear favorite. Bet for value to build the pot.';
-      } else if (eq >= 0.55) {
-        suggestBet = roundInc(pot * 0.5);
+        reason = 'You are a clear favorite. Bet for value' + protectReason() +
+          '. Strong-but-worse hands still call.';
+      } else if (eq >= 0.52) {
+        suggestBet = roundInc(pot * Math.max(0.5, frac - 0.1));
         action = 'BET (value)';
-        reason = 'You are ahead. A half-pot bet charges draws and builds value.';
+        reason = 'You are ahead. Bet to build the pot and charge the draws' +
+          (tex.wet ? ' (' + tex.note + ')' : '') + '.';
       } else if (eq >= 0.45) {
         suggestBet = roundInc(pot * 0.33);
         action = 'BET small / CHECK';
@@ -420,8 +485,7 @@
       }
       if (suggestBet > 0) {
         if (stack && suggestBet > stack) suggestBet = stack;
-        betText = 'Suggested bet: $' + money(suggestBet) +
-          (pot ? ' (~' + Math.round(suggestBet / pot * 100) + '% of pot)' : '');
+        betText = 'Suggested bet: $' + money(suggestBet) + pctOfPot(suggestBet);
       }
     } else {
       // Facing a bet — fold / call / raise.
@@ -430,13 +494,13 @@
         action = 'FOLD';
         reason = 'Your ' + pct(eq) + ' equity is below the ' + pct(required) +
           ' you need to call profitably.';
-      } else if (edge >= 0.15 && eq >= 0.6) {
-        suggestBet = roundInc(toCall + (pot + toCall) * 0.7);
+      } else if (edge >= 0.15 && eq >= 0.58) {
+        suggestBet = roundInc(toCall + (pot + toCall) * frac);
         if (stack && suggestBet > stack) suggestBet = stack;
         action = 'RAISE (value)';
         reason = 'You have a big equity edge (' + pct(eq) + ' vs ' + pct(required) +
-          ' needed). Raise for value.';
-        betText = 'Suggested raise TO: $' + money(suggestBet);
+          ' needed). Raise for value' + protectReason() + '.';
+        betText = 'Suggested raise TO: $' + money(suggestBet) + pctOfPot(suggestBet);
       } else {
         action = 'CALL';
         reason = 'Your ' + pct(eq) + ' equity beats the ' + pct(required) +
@@ -511,7 +575,8 @@
     chenScore: chenScore, chenCutoff: chenCutoff,
     tightnessToRangePct: tightnessToRangePct,
     equity: equity, advise: advise, pct: pct,
-    preflopTier: preflopTier, opponentAction: opponentAction
+    preflopTier: preflopTier, boardTexture: boardTexture,
+    protectionFrac: protectionFrac, opponentAction: opponentAction
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

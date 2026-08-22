@@ -25,7 +25,11 @@ It gives you:
 - **Pot odds** — the equity you need to call profitably.
 - **EV of calling** — expected dollar value of a call, + or –.
 - **A recommendation** — FOLD / CHECK / CALL / BET / RAISE — with a suggested
-  bet size rounded to your table's bet increment.
+  bet size rounded to your table's bet increment. Sizing is built to **fold out
+  weaker hands and deny draws the odds to chase**: opens and raises grow with the
+  number of players still in (to thin a loose, multiway field), and postflop bets
+  grow on drawy boards (two-tone / connected / monotone) so a flush or straight
+  draw can't call cheaply and "catch" you.
 
 ## Two modes
 
