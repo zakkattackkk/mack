@@ -218,7 +218,7 @@
       </div>
       <div>
         <label>Seats at table</label>
-        <input type="number" id="seats" min="2" max="10" value="6">
+        <input type="number" id="seats" min="2" max="9" value="6">
       </div>
     </div>
     <div class="hint">Pick a preset or type your own blinds. Set how many seats the table has, then fill in the players below.</div>
@@ -401,7 +401,7 @@
 
   // Rebuild the roster to match the seat count, preserving existing reads.
   function syncRoster() {
-    var seats = Math.max(2, Math.min(10, +seatsInput.value || 6));
+    var seats = Math.max(2, Math.min(9, +seatsInput.value || 6));
     var opponents = seats - 1;
     while (roster.length < opponents) roster.push({ in: true, vpip: 25, streak: 'none' });
     if (roster.length > opponents) roster = roster.slice(0, opponents);
@@ -950,7 +950,7 @@
   }
 
   loadRoster();
-  if (roster.length) seatsInput.value = Math.max(2, Math.min(10, roster.length + 1));
+  if (roster.length) seatsInput.value = Math.max(2, Math.min(9, roster.length + 1));
   syncRoster();
   renderSlots();
   runCalc();
