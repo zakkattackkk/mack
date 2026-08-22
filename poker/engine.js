@@ -190,16 +190,43 @@
     return 80 - (t / 100) * 72; // 80% down to 8%
   }
 
+  // A player's VPIP is the % of hands they voluntarily play — so it IS their
+  // preflop range %. A streak nudges it looser: winners get confident and play
+  // more; losers tilt and chase. (A behavioral read, not a hard rule.)
+  function effectiveVpip(vpip, streak) {
+    var v = (vpip == null ? 25 : vpip);
+    if (streak === 'hot') v += 8;
+    else if (streak === 'cold') v += 12;
+    return Math.max(3, Math.min(95, v));
+  }
+
+  // Inverse of tightnessToRangePct, for feeding a range% back to the bots.
+  function rangePctToTightness(rangePct) {
+    return Math.max(0, Math.min(100, (80 - rangePct) / 0.72));
+  }
+
   // ---- Monte Carlo equity ------------------------------------------------
   // opts: { hole:[c,c], board:[..0-5], opponents:N, tightness:0..100, iterations }
   // Returns { win, tie, lose, equity, iterations, category, samples }
   function equity(opts) {
     var hole = opts.hole || [];
     var board = opts.board || [];
-    var opponents = Math.max(1, opts.opponents || 1);
     var iterations = opts.iterations || 10000;
-    var cutoff = chenCutoff(tightnessToRangePct(
-      opts.tightness == null ? 50 : opts.tightness));
+
+    // Per-opponent range %s. Prefer opts.oppRanges (one range% per opponent,
+    // e.g. from each player's VPIP); else fall back to a uniform range derived
+    // from the single tightness value; else 50 -> ~44%.
+    var oppRanges;
+    if (opts.oppRanges && opts.oppRanges.length) {
+      oppRanges = opts.oppRanges.slice();
+    } else {
+      var n = Math.max(1, opts.opponents || 1);
+      var uni = tightnessToRangePct(opts.tightness == null ? 50 : opts.tightness);
+      oppRanges = [];
+      for (var q = 0; q < n; q++) oppRanges.push(uni);
+    }
+    var opponents = oppRanges.length;
+    var cutoffs = oppRanges.map(function (r) { return chenCutoff(r); });
 
     if (hole.length !== 2) throw new Error('Need exactly 2 hole cards');
 
@@ -218,8 +245,8 @@
     var known = hole.concat(board);
     if (known.length >= 5) myCat = categoryOf(bestKnown(known));
 
-    // Fisher-Yates partial shuffle helper
-    function drawOpponentHand(d, dlen, tries) {
+    // Draw an opponent hand whose Chen score clears `cutoff` (their range).
+    function drawOpponentHand(d, dlen, tries, cutoff) {
       // reject hands outside the range up to `tries` times, then accept anything
       for (var t = 0; t < tries; t++) {
         var i1 = (Math.random() * dlen) | 0;
@@ -245,7 +272,7 @@
       // deal opponent hands
       for (var o = 0; o < opponents; o++) {
         if (dlen < 2 + boardNeeded) { ok = false; break; }
-        var idx = drawOpponentHand(d, dlen, 20);
+        var idx = drawOpponentHand(d, dlen, 20, cutoffs[o]);
         var pa = d[idx[0]], pb = d[idx[1]];
         oppHands.push([pa, pb]);
         // remove the two used cards (swap to end)
@@ -574,6 +601,7 @@
     CATEGORY_NAMES: CATEGORY_NAMES,
     chenScore: chenScore, chenCutoff: chenCutoff,
     tightnessToRangePct: tightnessToRangePct,
+    effectiveVpip: effectiveVpip, rangePctToTightness: rangePctToTightness,
     equity: equity, advise: advise, pct: pct,
     preflopTier: preflopTier, boardTexture: boardTexture,
     protectionFrac: protectionFrac, opponentAction: opponentAction

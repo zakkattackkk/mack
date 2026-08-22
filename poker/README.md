@@ -55,19 +55,28 @@ best five-card hand, and counts how often you win, tie, or lose. That fraction
 is your equity. This is exactly how a real poker odds calculator works — no
 lookup-table shortcuts, so any board and any number of opponents work.
 
-## How "tightness" works
+## Per-player reads: VPIP & streaks
 
-A tight player only voluntarily plays strong hands. The slider narrows the range
-of hands your opponents are assumed to hold:
+Instead of one "tightness" dial, you set each opponent individually in the
+**Players & reads** panel:
 
-- **Loose** — opponents can show up with almost anything (~80% of hands). Your
-  win % goes **up**, because their range is weaker.
-- **Tight** — opponents only hold premium hands (~8% of hands). Your win % goes
-  **down**, because you're up against strength.
+- **VPIP** (Voluntarily Put money In Pot) — how often that player enters a hand
+  instead of folding. It literally *is* their preflop range, so the simulator
+  uses it directly: a VPIP of 20 means they only play their top ~20% of hands
+  (a nit); a VPIP of 60 means they play over half of everything (a maniac). Tight
+  opponents lower your win %, loose ones raise it.
+- **Streak** — mark a player 🔥 hot (running well, getting confident) or 🧊 cold
+  (losing / tilting). Both nudge their effective VPIP looser, because that's the
+  common tell — winners loosen up and losers chase. It's a behavioral read, not
+  a hard rule, so the nudge is modest.
+- **In the hand?** — uncheck anyone who folds. The odds instantly recompute
+  against only the players left, using *their* individual ranges.
 
-Hand strength for the range is scored with the **Chen formula**, a well-known
-starting-hand rating. Watch how people play, jot reads in the notes box, and set
-the slider to match the opponents in the current hand.
+Hand strength for the ranges is scored with the **Chen formula**, a well-known
+starting-hand rating. Reads are saved on your device between hands.
+
+You also set the **table size** (how many seats) and the **blinds** directly —
+pick a stakes preset or type any small/big blind you like.
 
 ## Honest limits
 
