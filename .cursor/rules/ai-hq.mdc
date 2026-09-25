@@ -1,0 +1,13 @@
+---
+description: Always use ai-hq shared brain for status, handoffs, audits, previews
+alwaysApply: true
+---
+
+Before planning or building site work, read `ai-hq/MISSION.md`, `ai-hq/BACKLOG.md`, and `ai-hq/HANDOFF.md`.
+
+Shared artifacts live under `ai-hq/`:
+- `inbox/` — files Zak uploads from phone (e.g. Grok audits)
+- `audits/` — processed audits
+- `previews/` — screenshots pushed for phone viewing
+
+At session end (when you did meaningful work): update BACKLOG checkboxes, rewrite HANDOFF, append TODAY, commit if appropriate.
