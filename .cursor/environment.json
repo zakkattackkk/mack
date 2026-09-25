@@ -1,0 +1,17 @@
+{
+  "name": "AI-HQ (mack)",
+  "install": "echo 'No build dependencies: this is a docs + brand-asset repo. git, node, and python3 are provided by the base image.'",
+  "terminals": [
+    {
+      "name": "preview-server",
+      "command": "python3 -m http.server 8000",
+      "description": "Static preview server for browsing brand assets (brand-logo/) and Markdown docs (ai-hq/) in a browser at http://localhost:8000. Used for the repo's visual-verification workflow (screenshots into ai-hq/previews/)."
+    }
+  ],
+  "ports": [
+    {
+      "name": "preview",
+      "port": 8000
+    }
+  ]
+}
